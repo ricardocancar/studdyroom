@@ -2,6 +2,9 @@ import queue
 import re
 from django.shortcuts import render, redirect
 from django.db.models import Q
+from django.contrib.auth.models import User
+from django.contrib.auth import authenticate, login, logout
+from django.contrib import messages
 from django.http import HttpResponse
 from .models import Room, Topic
 from .forms import RoomForm
@@ -16,7 +19,25 @@ rooms = [
     {'id': 3, 'name': 'lets learn flask'},
 ]
 
-# funtion to render the index page
+def loginPage(request):
+    context = {}
+
+    if request.method == 'POST':
+        username = request.POST.get('username')
+        password = request.POST.get('password')
+        try:
+            user = User.objects.get(username=username)
+        except:
+            messages.error(request, 'user does not exist')
+
+        user = authenticate(request, username=username, password=password)
+        if user:
+            login(request, user)
+            return redirect('home')
+        else:
+            messages.error(request, 'user name or password is incorrect')
+    return render(request, 'base/login_register.html', context)
+
 def home(request):
     queue = request.GET.get('q', '')
     rooms = Room.objects.filter(
