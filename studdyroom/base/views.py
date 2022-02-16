@@ -4,9 +4,11 @@ import queue
 import re
 from unicodedata import name
 from venv import create
+from django import views
 from django.shortcuts import render, redirect
 from django.db.models import Q
 
+from django.contrib.auth.mixins import LoginRequiredMixin
 from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
@@ -27,8 +29,9 @@ class LoginPage(View):
     def set_params_from_post(self, request):
         self.email = request.POST.get('email').lower()
         self.password = request.POST.get('password')
-        self.user = authenticate(request, email=self.email, password=self.password)
-        return self.user
+        self.user = User.objects.filter(email=self.email).first()
+        if not self.user or not self.user.check_password(self.password):
+            self.user = None
 
     def get(self, request):
         if request.user.is_authenticated:
@@ -41,10 +44,7 @@ class LoginPage(View):
         if request.user.is_authenticated:
             return redirect('home')
         self.set_params_from_post(request)
-        try:
-            User.objects.get(email=self.email)
-        except:
-            messages.error(request, 'user does not exist')
+        
         if self.user:
             login(request, self.user)
             return redirect('home')
@@ -81,30 +81,40 @@ class RegisterPage(View):
             messages.error(request, 'Something went wrong')
         return render(request, 'base/login_register.html', self.context)
 
-def home(request):
-    queue = request.GET.get('q', '')
-    rooms = Room.objects.filter(
-        Q(topic__name__icontains=queue) |
-        Q(name__icontains=queue) |
-        Q(description__icontains=queue)
-        )
-    topics = Topic.objects.all()[:4]
-    room_count = rooms.count()
-    room_messages =  Message.objects.filter(
-        Q(room__name__icontains=queue))
+class HomePage(View):
+    def get(self, request):
+        queue = request.GET.get('q', '')
+        rooms = Room.objects.filter(
+            Q(topic__name__icontains=queue) |
+            Q(name__icontains=queue) |
+            Q(description__icontains=queue)
+            )
+        topics = Topic.objects.all()[:4]
+        room_count = rooms.count()
+        room_messages =  Message.objects.filter(
+            Q(room__name__icontains=queue))
 
-    context = {
-        'rooms': rooms, 'topics': topics,
-        'room_count': room_count, 'room_messages': room_messages}
-    return render(request, 'base/home.html', context)
+        context = {
+            'rooms': rooms, 'topics': topics,
+            'room_count': room_count, 'room_messages': room_messages}
+        return render(request, 'base/home.html', context)
 
-def room(request, pk):
-    context = {}
-    room = Room.objects.get(id=pk)
-    participants = room.participants.all()
-    room_messages = room.message_set.all().order_by('-created')
-    if request.method == 'POST':
+class RoomView(View):
+    def get(self, request, pk):
+        context = {}
+        room = Room.objects.get(id=pk)
+        participants = room.participants.all()
+        room_messages = room.message_set.all().order_by('-created')
+        context = {
+            'room': room,
+            'room_messages': room_messages,
+            'participants': participants
+            }
+        return render(request, 'base/room.html', context)
+    
+    def post(self, request, pk):
         message = request.POST.get('body')
+        room = Room.objects.get(id=pk)
         if message:
             Message.objects.create(
                 user=request.user,
@@ -113,46 +123,48 @@ def room(request, pk):
             )
         room.participants.add(request.user)
         return redirect('room', pk=room.id)
-        
-    context = {
-        'room': room,
-        'room_messages': room_messages,
-        'participants': participants
-        }
-    return render(request, 'base/room.html', context)
 
 
-def UserProfile(request, pk):
-    user = User.objects.get(id=pk)
-    rooms = user.room_set.all()
-    room_messages = user.message_set.all()
-    topics = Topic.objects.all()
-    context = {
-        'user': user,
-        'rooms': rooms,
-        'room_messages': room_messages,
-        'topics': topics
-        }
-    return render(request, 'base/profile.html', context)
+class UserProfile(View):
+    def get(request, pk):
+        user = User.objects.get(id=pk)
+        rooms = user.room_set.all()
+        room_messages = user.message_set.all()
+        topics = Topic.objects.all()
+        context = {
+            'user': user,
+            'rooms': rooms,
+            'room_messages': room_messages,
+            'topics': topics
+            }
+        return render(request, 'base/profile.html', context)
+
+class CreateRoom(LoginRequiredMixin, View):
+
+    def __init__(self):
+        self.topics = Topic.objects.all()
+        login_url = '/login/'
+        redirect_field_name = 'redirect_to'
+    
+    def get(self, request):
+        form = RoomForm()
+        context = {'form': form, 'topics': self.topics}
+        return render(request, 'base/room_form.html', context)
+   
+    #
+    def post(self, request):
+        form = RoomForm(request.POST)
+        if form.is_valid():
+            room = form.save(commit=False)
+            room.topic = Topic.objects.get(id=request.POST.get('topic'))
+            room.save()
+            return redirect('room', pk=room.id)
+        else:
+            messages.error(request, 'Something went wrong')
+        context = {'form': form, 'topics': self.topics}
+        return render(request, 'base/room_form.html', context)
 
 
-@login_required(login_url='login')
-def createRoom(request):
-    form = RoomForm()
-    topics = Topic.objects.all()
-    if request.method == 'POST':
-        topic_name = request.POST.get('topic')
-        topic, created = Topic.objects.get_or_create(name=topic_name)
-        Room.objects.create(
-            host=request.user,
-            topic=topic,
-            name=request.POST.get('name'),
-            description=request.POST.get('description')
-        )
-        return redirect('home')
-
-    context = {'form': form, 'topics': topics}
-    return render(request, 'base/room_form.html', context)
 
 @login_required(login_url='login')
 def updateRoom(request, pk):
