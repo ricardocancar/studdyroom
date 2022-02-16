@@ -60,22 +60,26 @@ def LogoutUser(request):
     logout(request)
     return redirect('home')
 
-def registerPage(request):
-    page='Register'
+class RegisterPage(View):
+    """"""
+    def __init__(self):
+        self.page='Register'
+        self.form = MyUserCreationForm()
+        self.context = {'page': self.page, 'form': self.form}
     
-    form = MyUserCreationForm()
-    if request.method == 'POST':
-        form = MyUserCreationForm(request.POST)
-        if form.is_valid():
-            user = form.save(commit=False)
+    def get(self, request):
+        return render(request, 'base/login_register.html', self.context)
+
+    def post(self, request):
+        if self.form.is_valid():
+            user = self.form.save(commit=False)
             user.username = user.username.lower()
             user.save()
             login(request, user)
             return redirect('home')
         else:
             messages.error(request, 'Something went wrong')
-    context = {'page': page, 'form': form}
-    return render(request, 'base/login_register.html', context)
+        return render(request, 'base/login_register.html', self.context)
 
 def home(request):
     queue = request.GET.get('q', '')
