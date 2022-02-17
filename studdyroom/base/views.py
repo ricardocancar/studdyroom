@@ -1,16 +1,10 @@
-from email import message
 from pydoc_data.topics import topics
-import queue
-import re
-from unicodedata import name
-from venv import create
-from django import views
 from django.shortcuts import render, redirect
 from django.db.models import Q
 
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.contrib.auth import authenticate, login, logout
-from django.contrib.auth.decorators import login_required
+# from django.contrib.auth.decorators import login_required
 from django.contrib import messages
 
 from django.http import HttpResponse
@@ -126,7 +120,7 @@ class RoomView(View):
 
 
 class UserProfile(View):
-    def get(request, pk):
+    def get(self, request, pk):
         user = User.objects.get(id=pk)
         rooms = user.room_set.all()
         room_messages = user.message_set.all()
@@ -166,14 +160,25 @@ class CreateRoom(LoginRequiredMixin, View):
 
 
 
-@login_required(login_url='login')
-def updateRoom(request, pk):
-    room = Room.objects.get(id=pk)
-    form = RoomForm(instance=room)
-    topics = Topic.objects.all()
-    if  request.user != room.host:
-        return HttpResponse('you can`t not edit this room')
-    if request.method == 'POST':
+
+class UpdateRoom(LoginRequiredMixin, View):
+    def __init__(self):
+        login_url = '/login/'
+        redirect_field_name = 'redirect_to'
+    
+    def get(self, request, pk):
+        if  request.user != room.host:
+            return HttpResponse('you can`t not edit this room')
+        room = Room.objects.get(id=pk)
+        form = RoomForm(instance=room)
+        topics = Topic.objects.all()
+        context = {'form': form, 'topics': topics, 'room': room}
+        return render(request, 'base/room_form.html', context)
+
+    def post(self, request, pk):
+        room = Room.objects.get(id=pk)
+        if  request.user != room.host:
+            return HttpResponse('you can`t not edit this room')
         topic_name = request.POST.get('topic')
         topic, created = Topic.objects.get_or_create(name=topic_name)
         room.name = request.POST.get('name')
@@ -181,53 +186,77 @@ def updateRoom(request, pk):
         room.description = request.POST.get('description')
         room.save()
         return redirect('home')
-    
-    context = {'form': form, 'topics': topics, 'room': room}
-    return render(request, 'base/room_form.html', context)
 
-@login_required(login_url='login')
-def deleteRoom(request, pk):
-    room = Room.objects.get(id=pk)
-    if  request.user != room.host:
-        return HttpResponse('you can`t not deleted this room')
-    if request.method == 'POST':
+
+class DeleteRoom(LoginRequiredMixin, View):
+    def __init__(self):
+        login_url = '/login/'
+        redirect_field_name = 'redirect_to'
+    
+    def get(self, request, pk):
+        room = Room.objects.get(id=pk)
+        if  request.user != room.host:
+            return HttpResponse('you can`t not deleted this room')
+    
+    def post(self, request, pk):
+        room = Room.objects.get(id=pk)
         room.delete()
         return redirect('home')
-    return render(request, 'base/delete.html', {'obj': room})
 
-@login_required(login_url='login')
-def deleteMessage(request, pk):
-    messages = Message.objects.get(id=pk)
-    if  request.user != messages.user:
-        return HttpResponse('you can`t not deleted this messages')
-    if request.method == 'POST':
+
+class DeleteMessage(LoginRequiredMixin, View):
+    
+    def __init__(self):
+        login_url = '/login/'
+        redirect_field_name = 'redirect_to'
+    
+    def get(self, request, pk):
+        messages = Message.objects.get(id=pk)
+        if  request.user != messages.user:
+            return HttpResponse('you can`t not deleted this messages')
+        return render(request, 'base/delete.html', {'obj': messages})
+
+    def post(self, request, pk):
+        if  request.user != messages.user:
+            return HttpResponse('you can`t not deleted this messages')
+        messages = Message.objects.get(id=pk)
         messages.delete()
         return redirect('home')
-    return render(request, 'base/delete.html', {'obj': messages})
+    
 
-@login_required(login_url='login')
-def updateUser(request):
-    user = request.user
-    form = UserForm(instance=user)
-    context = {'form': form}
-    if request.method == 'POST':
+class UpdateUser(LoginRequiredMixin, View):
+    def __init__(self):
+        login_url = '/login/'
+        redirect_field_name = 'redirect_to'
+    
+    def get(self, request):
+        user = request.user
+        form = UserForm(instance=user)
+        context = {'form': form}
+        return render(request, 'base/update_user.html', context)
+
+    def post(self, request):
+        user = request.user
         form = UserForm(request.POST, request.FILES, instance=user)
         if form.is_valid():
             form.save()
             return redirect('user-profile', pk=user.id)
-    return render(request, 'base/update_user.html', context)
+        context = {'form': form}
+        return render(request, 'base/update_user.html', context)
 
 
-def topicsPage(request):
-    queue = request.GET.get('q', '')
-    topics = Topic.objects.filter(name__icontains=queue)
-    context = {'topics': topics}
-    return render(request, 'base/topics.html', context)
+class TopicsPage(View):
+    def get(self, request, q):
+        queue = q
+        topics = Topic.objects.filter(name__icontains=queue)
+        context = {'topics': topics}
+        return render(request, 'base/topics.html', context)
 
 
-def activities(request):
-    queue = request.GET.get('q', '')
-    room_messages =  Message.objects.filter(
-        Q(room__name__icontains=queue))
-    context = {'room_messages': room_messages}
-    return render(request, 'base/activity.html', context=context)
+class Activities(View):
+    def get(self, request, q):
+        queue = q
+        room_messages =  Message.objects.filter(
+            Q(room__name__icontains=queue))
+        context = {'room_messages': room_messages}
+        return render(request, 'base/activity.html', context=context)
